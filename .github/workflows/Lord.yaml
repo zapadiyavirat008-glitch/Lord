@@ -1,0 +1,64 @@
+name: Run CloudFront Scanner
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/**'
+  schedule:
+    - cron: '0 */6 * * *'       # Har 6 ghante mein naya fresh background session start hoga
+  workflow_dispatch:            # Manual start karne ke liye button
+
+permissions:
+  contents: write               # GitHub ko file save karne ki permission dene ke liye
+
+jobs:
+  run-scanner:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: pip install requests
+
+      - name: Generate IP List
+        run: |
+          python3 -c "
+          import ipaddress
+          start = ipaddress.IPv4Address('56.228.1.1')
+          end = ipaddress.IPv4Address('56.228.110.255')
+          with open('ips.txt', 'w') as f:
+              curr = start
+              while curr <= end:
+                  f.write(f'{curr}\n')
+                  curr += 1
+          "
+
+      - name: Run Script in Continuous Loop
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          # Loop ke andar hi hum har round ke baad git push kar denge taaki memory save rahe
+          while true; do
+            echo "Starting fresh scan round..."
+            python cf_finder.py hosts.txt ips.txt
+            
+            echo "Saving database state to GitHub..."
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git add live_database.json || true
+            git commit -m "Auto-update database status [skip ci]" || true
+            git push || true
+            
+            echo "Round finished. Waiting 30 seconds before next loop..."
+            sleep 30
+          done
