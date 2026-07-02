@@ -18,7 +18,7 @@ IP_FILE = sys.argv[2]
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
-PORT = 8443
+PORT = 443
 THREADS = 80
 DB_FILE = "live_database.json"
 
