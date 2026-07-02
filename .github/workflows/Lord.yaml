@@ -33,8 +33,8 @@ jobs:
         run: |
           python3 -c "
           import ipaddress
-          start = ipaddress.IPv4Address('140.241.1.1')
-          end = ipaddress.IPv4Address('140.241.255.255')
+          start = ipaddress.IPv4Address('56.10.1.1')
+          end = ipaddress.IPv4Address('56.10.255.255')
           with open('ips.txt', 'w') as f:
               curr = start
               while curr <= end:
