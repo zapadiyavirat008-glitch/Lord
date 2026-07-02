@@ -4,13 +4,14 @@ on:
   push:
     branches: [ main ]
     paths:
-      - '.github/workflows/**'
+      - '.github/workflows/**'  # Sirf workflow folder mein badlaav karne par hi trigger hoga
   schedule:
-    - cron: '0 */6 * * *'       # Har 6 ghante mein naya fresh background session start hoga
-  workflow_dispatch:            # Manual start karne ke liye button
+    - cron: '0 */6 * * *'       # Har 6 ghante mein automatic ek baar chalega
+  workflow_dispatch:            # (Extra) Isse aapko GitHub par manually run karne ka button bhi mil jayega
 
+# ZARURI PERMISSION: Iske bina GitHub database file ko save/write nahi karne dega
 permissions:
-  contents: write               # GitHub ko file save karne ki permission dene ke liye
+  contents: write
 
 jobs:
   run-scanner:
@@ -19,7 +20,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          persist-credentials: true
+          persist-credentials: true  # Database push ke liye token verification hold rakhega
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -44,21 +45,20 @@ jobs:
 
       - name: Run Script in Continuous Loop
         env:
+          # Aapke pehle se set kiye huye tokens ke naam bilkul same hain
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          # Loop ke andar hi hum har round ke baad git push kar denge taaki memory save rahe
           while true; do
             echo "Starting fresh scan round..."
             python cf_finder.py hosts.txt ips.txt
-            
-            echo "Saving database state to GitHub..."
-            git config --global user.name "github-actions[bot]"
-            git config --global user.email "github-actions[bot]@users.noreply.github.com"
-            git add live_database.json || true
-            git commit -m "Auto-update database status [skip ci]" || true
-            git push || true
-            
             echo "Round finished. Waiting 30 seconds before next loop..."
             sleep 30
           done
+
+      # EXTRA ADDED STEP: Yeh step har round ke baad live_database.json ko aapki repo mein push karega
+      - name: Commit and Save Database Logs
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Cloudflare State Database Auto-Update [Skip CI]"
+          file_pattern: 'live_database.json'
