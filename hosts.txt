@@ -1,2 +1,1 @@
-www.jio.com
-netbanking.hdfcbank.com 
+aio.code-j.workers.dev
