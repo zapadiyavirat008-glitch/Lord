@@ -169,7 +169,9 @@ for t in threads_p2:
     t.join()
 
 # --- CONSOLIDATE & FINAL CLEAN REPORT ---
-db_data = {"active": {}, "scanned_at": now_str := datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S") # Pehle variable alag se banaya
+db_data = {"active": {}, "scanned_at": now_str} # Ab dict mein pass kiya
+
 report_text = f"🏁 *SCAN ENGINE ROUND COMPLETE* 🏁\n\n🎯 *Total Genuine Tunnels Found:* `{len(final_hits)}`\n\n"
 
 if len(final_hits) > 0:
