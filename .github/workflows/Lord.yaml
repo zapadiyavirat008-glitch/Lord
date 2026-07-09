@@ -7,7 +7,7 @@ on:
       - '.github/workflows/**'
   schedule:
     - cron: '0 */6 * * *'       # Har 6 ghante mein automatic chalega
-  workflow_dispatch:            # Manual button se  karne ke liye
+  workflow_dispatch:            # Maual button se  karne ke liye
 
 permissions:
   contents: write
