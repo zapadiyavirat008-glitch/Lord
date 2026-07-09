@@ -1,15 +1,14 @@
-name: Run CloudFront Scanner
+name: Run CloudFront and Cloudflare Scanner
 
 on:
   push:
     branches: [ main ]
     paths:
-      - '.github/workflows/**'  # Sirf workflow folder mein badlaav karne par hi trigger hoga
+      - '.github/workflows/**'
   schedule:
-    - cron: '0 */6 * * *'       # Har 6 ghante mein automatic ek baar chalega
-  workflow_dispatch:            # (Extra) Isse aapko GitHub par manually run karne ka button bhi mil jayega
+    - cron: '0 */6 * * *'       # Har 6 ghante mein automatic chalega
+  workflow_dispatch:            # Manual button se run karne ke liye
 
-# ZARURI PERMISSION: Iske bina GitHub database file ko save/write nahi karne dega
 permissions:
   contents: write
 
@@ -20,7 +19,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          persist-credentials: true  # Database push ke liye token verification hold rakhega
+          persist-credentials: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -35,7 +34,7 @@ jobs:
           python3 -c "
           import ipaddress
           start = ipaddress.IPv4Address('56.183.1.1')
-          end = ipaddress.IPv4Address('56.190.255.255')
+          end = ipaddress.IPv4Address('56.230.255.255')
           with open('ips.txt', 'w') as f:
               curr = start
               while curr <= end:
@@ -43,22 +42,16 @@ jobs:
                   curr += 1
           "
 
-      - name: Run Script in Continuous Loop
+      - name: Execute Stable Scanner Round
         env:
-          # Aapke pehle se set kiye huye tokens ke naam bilkul same hain
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          while true; do
-            echo "Starting fresh scan round..."
-            python cf_finder.py hosts.txt ips.txt
-            echo "Round finished. Waiting 30 seconds before next loop..."
-            sleep 30
-          done
+          echo "Launching Python Multi-Phase Scanner..."
+          python cf_finder.py hosts.txt ips.txt
 
-      # EXTRA ADDED STEP: Yeh step har round ke baad live_database.json ko aapki repo mein push karega
       - name: Commit and Save Database Logs
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Cloudflare State Database Auto-Update [Skip CI]"
+          commit_message: "CDN State Database Auto-Update [Skip CI]"
           file_pattern: 'live_database.json'
