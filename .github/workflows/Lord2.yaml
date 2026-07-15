@@ -6,11 +6,11 @@ on:
       start_ip:
         description: 'Enter Starting IP (e.g., 56.13.1.1)'
         required: true
-        default: '56.10.1.1'
+        default: '56.10.10.1'
       end_ip:
         description: 'Enter Ending IP (e.g., 56.13.255.255)'
         required: true
-        default: '56.10.255.255'
+        default: '56.10.10.255'
 
 jobs:
   scan:
