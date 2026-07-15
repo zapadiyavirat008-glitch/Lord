@@ -1,46 +1,84 @@
-name: Run CloudFront and Cloudflare Scanner
+name: CDN IP Capability Scanner
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - '.github/workflows/**'
-  
-      
-  workflow_dispatch:        # Manual run button
+  workflow_dispatch:
+    inputs:
+      start_ip:
+        description: 'Enter Starting IP (e.g., 56.13.1.1)'
+        required: true
+        default: '56.10.1.1'
+      end_ip:
+        description: 'Enter Ending IP (e.g., 56.13.255.255)'
+        required: true
+        default: '56.10.255.255'
 
 jobs:
-  run-scanner:
+  scan:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+    - name: Checkout Repository Code
+      uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+    - name: Set up Python Environment
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
 
-      - name: Install Dependencies
-        run: pip install requests
+    - name: Install System and Python Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests
 
-      - name: Generate IP List
-        run: |
-          python3 -c "
-          import ipaddress
-          start = ipaddress.IPv4Address('56.10.0.0')
-          end = ipaddress.IPv4Address('56.10.255.255')
-          with open('ips.txt', 'w') as f:
-              curr = start
-              while curr <= end:
-                  f.write(f'{curr}\n')
-                  curr += 1
-          "
+    - name: Generate IP List From Range
+      run: |
+        cat << 'EOF' > generate_ips.py
+        import sys
+        import ipaddress
 
-      - name: Execute High-Speed Filter Round
-        env:
-          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          echo "Launching rapid capability screening..."
-          python cf_finder.py hosts.txt ips.txt
+        def generate_range(start_ip, end_ip):
+            try:
+                start = ipaddress.IPv4Address(start_ip)
+                end = ipaddress.IPv4Address(end_ip)
+                
+                # IPs ko generate karke list me save karna
+                ips = []
+                curr = start
+                while curr <= end:
+                    ips.append(str(curr))
+                    curr += 1
+                
+                with open("ips.txt", "w") as f:
+                    for ip in ips:
+                        f.write(f"{ip}\n")
+                print(f"✅ Generated {len(ips)} IPs in ips.txt from {start_ip} to {end_ip}")
+            except Exception as e:
+                print(f"❌ Error generating IPs: {e}")
+                sys.exit(1)
+
+        if __name__ == "__main__":
+            start_ip = sys.argv[1]
+            end_ip = sys.argv[2]
+            generate_range(start_ip, end_ip)
+        EOF
+        
+        # Generator script ko manually input values ke sath run karna
+        python generate_ips.py "${{ github.event.inputs.start_ip }}" "${{ github.event.inputs.end_ip }}"
+
+    - name: Execute IP Capability Scan
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+      run: |
+        if [ -f "ips.txt" ]; then
+          python cf_finder.py ips.txt
+        else
+          echo "❌ Error: ips.txt generation failed!"
+          exit 1
+        fi
+
+    - name: Upload Output Artifact (Backup)
+      uses: actions/upload-artifact@v4
+      with:
+        name: Responsive-IPs
+        path: found_snis.txt
