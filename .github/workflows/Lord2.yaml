@@ -1,0 +1,46 @@
+name: Run CloudFront and Cloudflare Scanner
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/**'
+  schedule:
+    - cron: '0 */6 * * *'  # Runs automatically every 6 hours
+  workflow_dispatch:        # Manual run button
+
+jobs:
+  run-scanner:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: pip install requests
+
+      - name: Generate IP List
+        run: |
+          python3 -c "
+          import ipaddress
+          start = ipaddress.IPv4Address('56.10.1.1')
+          end = ipaddress.IPv4Address('56.10.255.255')
+          with open('ips.txt', 'w') as f:
+              curr = start
+              while curr <= end:
+                  f.write(f'{curr}\n')
+                  curr += 1
+          "
+
+      - name: Execute High-Speed Filter Round
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          echo "Launching rapid capability screening..."
+          python cf_finder.py hosts.txt ips.txt
