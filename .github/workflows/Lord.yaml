@@ -6,7 +6,7 @@ on:
     paths:
       - '.github/workflows/**'
         # Har 6 ghante mein automatic chalega
-  workflow_dispatch:            # Maual button se  karne ke liye
+  workflow_dispatch:            # Maual button se  krne ke liye
 
 permissions:
   contents: write
