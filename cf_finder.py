@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
 import socket
-import ssl
 import threading
 import sys
 import requests
@@ -15,9 +14,10 @@ IP_FILE = sys.argv[1]
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
-PORT = 443
-THREADS = 150  # High thread count for fast scanning
-OUTPUT_FILE = "found_snis.txt"  # Keeps the same output name for your Telegram setup
+# Testing common CDN ports to find which one is open/responding
+PORTS = [80, 443, 8080]
+THREADS = 150  
+OUTPUT_FILE = "found_snis.txt"
 
 progress_lock = threading.Lock()
 results_lock = threading.Lock()
@@ -48,61 +48,55 @@ def send_telegram_document(file_path):
     except Exception:
         pass
 
-def check_ip_capability(ip):
+def check_ip_response(ip):
     global processed_count
+    is_responsive = False
     
-    try:
-        raw_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        raw_sock.settimeout(2.0) # Swift timeout to keep scan highly performant
-        
-        # Create a relaxed SSL context that does NOT send an SNI extension
-        context = ssl.create_default_context()
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
-        
-        # Wrap without server_hostname to avoid SNI dependency
-        secure_sock = context.wrap_socket(raw_sock)
-        secure_sock.connect((ip, PORT))
-        
-        # Send a direct generic HTTP probe to trigger a response from the edge server
-        payload = (
-            f"GET / HTTP/1.1\r\n"
-            f"Host: {ip}\r\n"
-            f"Connection: close\r\n\r\n"
-        )
-        secure_sock.sendall(payload.encode())
-        response = secure_sock.recv(1024).decode(errors='ignore')
-        secure_sock.close()
-        
-        # Verify the IP behaves like a Cloudflare/CDN edge node
-        # Cloudflare nodes return specific headers even on bad/missing SNI requests
-        is_cf = any(sig in response.lower() for sig in [
-            "server: cloudflare", 
-            "cf-ray", 
-            "cf-cache-status",
-            "400 bad request"
-        ])
-        
-        if is_cf or "HTTP/1." in response:
-            with results_lock:
-                # Save ONLY the bare IP address as requested
-                qualified_ips.append(ip)
+    # Try the ports to see if the IP responds to a raw HTTP GET
+    for port in PORTS:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2.0) # 2 seconds timeout per port
+            
+            # Direct TCP connection without SSL overhead blocking it
+            sock.connect((ip, port))
+            
+            # Send a raw HTTP probe string
+            payload = f"GET / HTTP/1.1\r\nHost: {ip}\r\nConnection: close\r\n\r\n"
+            sock.sendall(payload.encode())
+            
+            # Read the beginning of the response
+            response = sock.recv(256).decode(errors='ignore')
+            sock.close()
+            
+            # If we get ANY valid HTTP response signature back, the IP gateway is alive
+            if "HTTP/1." in response or "server:" in response.lower():
+                is_responsive = True
+                break # Found a working port, no need to check others
                 
-    except Exception:
-        pass
+        except Exception:
+            try:
+                sock.close()
+            except:
+                pass
+            continue
+
+    if is_responsive:
+        with results_lock:
+            qualified_ips.append(ip)
 
     with progress_lock:
         processed_count += 1
         if processed_count % 1000 == 0 or processed_count == total_tasks:
-            sys.stdout.write(f"\rProgress: [{processed_count}/{total_tasks}] Scanning IPs for capability...")
+            sys.stdout.write(f"\rProgress: [{processed_count}/{total_tasks}] Checking IP responses...")
             sys.stdout.flush()
 
 def worker(ip_chunk):
     for ip in ip_chunk:
-        check_ip_capability(ip)
+        check_ip_response(ip)
 
 if __name__ == "__main__":
-    send_telegram_message("🚀 *Scan Initialized:* Direct IP capability filtering (No SNI check)...")
+    send_telegram_message("🚀 *Scan Initialized:* Raw HTTP capability probe (No SNI/SSL requirement)...")
 
     try:
         with open(IP_FILE, 'r') as f:
@@ -113,7 +107,6 @@ if __name__ == "__main__":
 
     total_tasks = len(ips)
 
-    # Chunk tasks for threads
     chunk_size = max(1, len(ips) // THREADS)
     threads = []
     for i in range(0, len(ips), chunk_size):
@@ -125,16 +118,16 @@ if __name__ == "__main__":
     for t in threads:
         t.join()
 
-    # Save only unique, sorted bare IP addresses
+    # Filter duplicates and sort
     unique_ips = sorted(list(set(qualified_ips)))
+    
     with open(OUTPUT_FILE, "w") as out:
         for ip in unique_ips:
             out.write(f"{ip}\n")
 
-    # Send the raw IP file to your Telegram channel
     if os.path.exists(OUTPUT_FILE) and os.path.getsize(OUTPUT_FILE) > 0:
         send_telegram_document(OUTPUT_FILE)
     else:
-        send_telegram_message("⚠️ *Scan Finalized:* No active or capable IPs found in this range.")
+        send_telegram_message("⚠️ *Scan Finalized:* No responsive IPs caught in this range.")
 
-    print(f"\nDone. Found {len(unique_ips)} qualified bare IPs saved to {OUTPUT_FILE}.")
+    print(f"\nDone. Found {len(unique_ips)} responsive bare IPs saved to {OUTPUT_FILE}.")
