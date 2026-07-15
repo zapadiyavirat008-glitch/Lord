@@ -43,4 +43,4 @@ jobs:
           CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           echo "Launching rapid capability screening..."
-          python cf_finder.py ips.txt
+          python cf_finder.py hosts.txt ips.txt
