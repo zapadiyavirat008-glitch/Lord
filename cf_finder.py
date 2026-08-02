@@ -15,7 +15,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
 # Testing common CDN ports to find which one is open/responding
-PORTS = [80, 443, 8080]
+PORTS = [443]
 THREADS = 150  
 OUTPUT_FILE = "found_snis.txt"
 
