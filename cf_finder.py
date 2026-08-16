@@ -16,7 +16,7 @@ CHAT_ID = os.environ.get("CHAT_ID")
 
 # Testing common CDN ports to find which one is open/responding
 PORTS = [443]
-THREADS = 1600  
+THREADS = 1800  
 OUTPUT_FILE = "found_snis.txt"
 
 progress_lock = threading.Lock()
