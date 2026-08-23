@@ -14,7 +14,6 @@ IP_FILE = sys.argv[1]
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
-# Testing common CDN ports to find which one is open/responding
 PORTS = [443]
 THREADS = 1800  
 OUTPUT_FILE = "found_snis.txt"
@@ -50,29 +49,26 @@ def send_telegram_document(file_path):
 
 def check_ip_response(ip):
     global processed_count
-    is_responsive = False
+    is_cloudflare = False
     
-    # Try the ports to see if the IP responds to a raw HTTP GET
     for port in PORTS:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(2.0) # 2 seconds timeout per port
-            
-            # Direct TCP connection without SSL overhead blocking it
+            sock.settimeout(2.0)
             sock.connect((ip, port))
             
-            # Send a raw HTTP probe string
-            payload = f"GET / HTTP/1.1\r\nHost: {ip}\r\nConnection: close\r\n\r\n"
+            # Send raw HTTP probe
+            payload = f"GET / HTTP/1.1\r\nHost: {ip}\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n"
             sock.sendall(payload.encode())
             
-            # Read the beginning of the response
-            response = sock.recv(256).decode(errors='ignore')
+            # Read first 512 bytes of header response
+            response = sock.recv(512).decode(errors='ignore').lower()
             sock.close()
             
-            # If we get ANY valid HTTP response signature back, the IP gateway is alive
-            if "HTTP/1." in response or "server:" in response.lower():
-                is_responsive = True
-                break # Found a working port, no need to check others
+            # Strict Filtering for Cloudflare Server Header & Response Tokens
+            if "server: cloudflare" in response or "cf-ray:" in response or "__cfduid" in response:
+                is_cloudflare = True
+                break
                 
         except Exception:
             try:
@@ -81,14 +77,14 @@ def check_ip_response(ip):
                 pass
             continue
 
-    if is_responsive:
+    if is_cloudflare:
         with results_lock:
             qualified_ips.append(ip)
 
     with progress_lock:
         processed_count += 1
         if processed_count % 1000 == 0 or processed_count == total_tasks:
-            sys.stdout.write(f"\rProgress: [{processed_count}/{total_tasks}] Checking IP responses...")
+            sys.stdout.write(f"\rProgress: [{processed_count}/{total_tasks}] Scanning for Cloudflare Edge Servers...")
             sys.stdout.flush()
 
 def worker(ip_chunk):
@@ -96,7 +92,7 @@ def worker(ip_chunk):
         check_ip_response(ip)
 
 if __name__ == "__main__":
-    send_telegram_message("🚀 *Scan Initialized:* Raw HTTP capability probe (No SNI/SSL requirement)...")
+    send_telegram_message("🚀 *Scan Initialized:* Strict Cloudflare Edge Server Detection Mode...")
 
     try:
         with open(IP_FILE, 'r') as f:
@@ -118,7 +114,6 @@ if __name__ == "__main__":
     for t in threads:
         t.join()
 
-    # Filter duplicates and sort
     unique_ips = sorted(list(set(qualified_ips)))
     
     with open(OUTPUT_FILE, "w") as out:
@@ -127,7 +122,8 @@ if __name__ == "__main__":
 
     if os.path.exists(OUTPUT_FILE) and os.path.getsize(OUTPUT_FILE) > 0:
         send_telegram_document(OUTPUT_FILE)
+        send_telegram_message(f"✅ *Scan Completed:* Found `{len(unique_ips)}` verified Cloudflare IPs.")
     else:
-        send_telegram_message("⚠️ *Scan Finalized:* No responsive IPs caught in this range.")
+        send_telegram_message("⚠️ *Scan Finalized:* No Cloudflare servers detected in this range.")
 
-    print(f"\nDone. Found {len(unique_ips)} responsive bare IPs saved to {OUTPUT_FILE}.")
+    print(f"\nDone. Found {len(unique_ips)} verified Cloudflare IPs saved to {OUTPUT_FILE}.")
