@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import socket
+import ssl
 import threading
 import sys
 import requests
@@ -15,7 +16,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
 PORTS = [443]
-THREADS = 1800  
+THREADS = 1000  
 OUTPUT_FILE = "found_snis.txt"
 
 progress_lock = threading.Lock()
@@ -49,42 +50,49 @@ def send_telegram_document(file_path):
 
 def check_ip_response(ip):
     global processed_count
-    is_cloudflare = False
+    is_valid_cdn = False
     
     for port in PORTS:
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(2.0)
-            sock.connect((ip, port))
+            raw_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            raw_sock.settimeout(2.0)
             
-            # Send raw HTTP probe
-            payload = f"GET / HTTP/1.1\r\nHost: {ip}\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n"
-            sock.sendall(payload.encode())
+            # Wrap in SSL with dummy SNI to force TLS Server Response
+            context = ssl.create_default_context()
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
             
-            # Read first 512 bytes of header response
-            response = sock.recv(512).decode(errors='ignore').lower()
-            sock.close()
+            # Connect TLS
+            conn = context.wrap_socket(raw_sock, server_hostname="cloudflare.com")
+            conn.connect((ip, port))
             
-            # Strict Filtering for Cloudflare Server Header & Response Tokens
-            if "server: cloudflare" in response or "cf-ray:" in response or "__cfduid" in response:
-                is_cloudflare = True
+            payload = f"GET / HTTP/1.1\r\nHost: cloudflare.com\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n"
+            conn.sendall(payload.encode())
+            
+            response = conn.recv(512).decode(errors='ignore').lower()
+            conn.close()
+            
+            # Broad CDN Detection (Cloudflare / CloudFront / Akamai / Fastly)
+            cdn_tokens = ["cloudflare", "cf-ray", "__cfduid", "cloudfront", "akamai", "fastly"]
+            if any(token in response for token in cdn_tokens) or "101" in response or "403 forbidden" in response:
+                is_valid_cdn = True
                 break
                 
         except Exception:
             try:
-                sock.close()
+                conn.close()
             except:
                 pass
             continue
 
-    if is_cloudflare:
+    if is_valid_cdn:
         with results_lock:
             qualified_ips.append(ip)
 
     with progress_lock:
         processed_count += 1
-        if processed_count % 1000 == 0 or processed_count == total_tasks:
-            sys.stdout.write(f"\rProgress: [{processed_count}/{total_tasks}] Scanning for Cloudflare Edge Servers...")
+        if processed_count % 500 == 0 or processed_count == total_tasks:
+            sys.stdout.write(f"\rProgress: [{processed_count}/{total_tasks}] TLS Probing IPs...")
             sys.stdout.flush()
 
 def worker(ip_chunk):
@@ -92,7 +100,7 @@ def worker(ip_chunk):
         check_ip_response(ip)
 
 if __name__ == "__main__":
-    send_telegram_message("🚀 *Scan Initialized:* Strict Cloudflare Edge Server Detection Mode...")
+    send_telegram_message("🚀 *Scan Initialized:* TLS SNI & Broad CDN Detection Mode...")
 
     try:
         with open(IP_FILE, 'r') as f:
@@ -122,8 +130,8 @@ if __name__ == "__main__":
 
     if os.path.exists(OUTPUT_FILE) and os.path.getsize(OUTPUT_FILE) > 0:
         send_telegram_document(OUTPUT_FILE)
-        send_telegram_message(f"✅ *Scan Completed:* Found `{len(unique_ips)}` verified Cloudflare IPs.")
+        send_telegram_message(f"✅ *Scan Completed:* Found `{len(unique_ips)}` responsive CDN IPs.")
     else:
-        send_telegram_message("⚠️ *Scan Finalized:* No Cloudflare servers detected in this range.")
+        send_telegram_message("⚠️ *Scan Finalized:* No responsive CDN targets found.")
 
-    print(f"\nDone. Found {len(unique_ips)} verified Cloudflare IPs saved to {OUTPUT_FILE}.")
+    print(f"\nDone. Found {len(unique_ips)} responsive IPs saved to {OUTPUT_FILE}.")
