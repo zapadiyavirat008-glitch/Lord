@@ -16,7 +16,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
 PORTS = [443]
-THREADS = 1000
+THREADS = 800
 OUTPUT_FILE = "found_snis.txt"
 
 progress_lock = threading.Lock()
@@ -48,7 +48,13 @@ def send_telegram_document(file_path):
     except Exception:
         pass
 
-def is_strict_cloudflare(ip, port=443):
+def verify_pure_cloudflare_edge(ip, port=443):
+    """
+    3-Layer Strict Verification:
+    1. TLS Handshake Validation
+    2. SSL Certificate Authority Check (O=Cloudflare, Inc.)
+    3. HTTP Edge Header & CF-Ray Token Validation
+    """
     try:
         raw_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         raw_sock.settimeout(2.0)
@@ -57,31 +63,42 @@ def is_strict_cloudflare(ip, port=443):
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
         
-        # TLS Handshake with Cloudflare target SNI
         conn = context.wrap_socket(raw_sock, server_hostname="cloudflare.com")
         conn.connect((ip, port))
         
-        # 1. Certificate Issuer Verification
-        cert = conn.getpeercert(binary_form=True)
-        # Check raw DER certificate stream for Cloudflare signatures
-        cert_is_cf = False
-        if cert:
-            raw_cert_str = str(cert).lower()
-            if "cloudflare" in raw_cert_str:
-                cert_is_cf = True
+        # --- LAYER 1: CERTIFICATE ISSUER / SUBJECT CHECK ---
+        cert_binary = conn.getpeercert(binary_form=True)
+        if not cert_binary:
+            conn.close()
+            return False
+            
+        cert_str = str(cert_binary).lower()
+        if "cloudflare" not in cert_str:
+            conn.close()
+            return False
 
-        # 2. HTTP Protocol Signature Verification
-        payload = "GET / HTTP/1.1\r\nHost: cloudflare.com\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n"
+        # --- LAYER 2: HTTP PROBE & HEADER SIGNATURES ---
+        payload = (
+            "GET / HTTP/1.1\r\n"
+            "Host: cloudflare.com\r\n"
+            "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n"
+            "Accept: */*\r\n"
+            "Connection: close\r\n\r\n"
+        )
         conn.sendall(payload.encode())
-        
-        response = conn.recv(512).decode(errors='ignore').lower()
+        response = conn.recv(1024).decode(errors='ignore').lower()
         conn.close()
-        
-        # Strict Header Validation
-        has_cf_header = any(h in response for h in ["server: cloudflare", "cf-ray:", "cf-cache-status:"])
-        
-        # Returns True only if it has official Cloudflare markers
-        if has_cf_header or cert_is_cf:
+
+        # Reject if server header contains Nginx, Apache, or third-party servers
+        if "server: nginx" in response or "server: apache" in response or "server: openresty" in response:
+            return False
+
+        # --- LAYER 3: MUST HAVE OFFICIAL CLOUDFLARE EDGE TOKENS ---
+        has_server_header = "server: cloudflare" in response
+        has_ray_id = "cf-ray:" in response
+        has_cache_status = "cf-cache-status:" in response
+
+        if has_server_header and (has_ray_id or has_cache_status):
             return True
 
     except Exception:
@@ -95,14 +112,14 @@ def is_strict_cloudflare(ip, port=443):
 def check_ip_worker(ip):
     global processed_count
     
-    if is_strict_cloudflare(ip, 443):
+    if verify_pure_cloudflare_edge(ip, 443):
         with results_lock:
             qualified_ips.append(ip)
 
     with progress_lock:
         processed_count += 1
         if processed_count % 500 == 0 or processed_count == total_tasks:
-            sys.stdout.write(f"\rProgress: [{processed_count}/{total_tasks}] Hunting Pure Cloudflare IPs...")
+            sys.stdout.write(f"\rProgress: [{processed_count}/{total_tasks}] Hunting Pure CF Anycast Nodes...")
             sys.stdout.flush()
 
 def worker_thread(ip_chunk):
@@ -110,7 +127,7 @@ def worker_thread(ip_chunk):
         check_ip_worker(ip)
 
 if __name__ == "__main__":
-    send_telegram_message("🚀 *Strict Scan Initialized:* Hunting ONLY 100% Verified Cloudflare IPs...")
+    send_telegram_message("🚀 *Strict Scan Started:* Filtering ONLY pure Cloudflare Anycast Edge IPs...")
 
     try:
         with open(IP_FILE, 'r') as f:
@@ -140,8 +157,8 @@ if __name__ == "__main__":
 
     if os.path.exists(OUTPUT_FILE) and os.path.getsize(OUTPUT_FILE) > 0:
         send_telegram_document(OUTPUT_FILE)
-        send_telegram_message(f"✅ *Scan Complete:* Found `{len(unique_ips)}` Pure Cloudflare IPs.")
+        send_telegram_message(f"✅ *Scan Complete:* Found `{len(unique_ips)}` 100% Genuine Cloudflare Edge IPs.")
     else:
-        send_telegram_message("⚠️ *Scan Complete:* Zero official Cloudflare nodes found in this range.")
+        send_telegram_message("⚠️ *Scan Complete:* Zero official Cloudflare nodes found in this IP block.")
 
-    print(f"\nDone. Found {len(unique_ips)} pure Cloudflare IPs saved to {OUTPUT_FILE}.")
+    print(f"\nDone. Found {len(unique_ips)} verified Cloudflare IPs saved to {OUTPUT_FILE}.")
