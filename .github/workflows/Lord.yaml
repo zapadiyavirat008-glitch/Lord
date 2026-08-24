@@ -5,7 +5,7 @@ on:
     branches: [ main ]
     paths:
       - '.github/workflows/**'
-        # Har 6 ghante mein automatic chale
+        # Har 6 ghante mein automatic chal
   workflow_dispatch:            # Maual button se  krne ke liye
 
 permissions:
